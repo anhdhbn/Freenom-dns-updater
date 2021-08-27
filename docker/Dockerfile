@@ -1,5 +1,7 @@
 FROM python:3-alpine
 
+RUN apk add --no-cache zlib openssl-dev binutils
+
 WORKDIR /opt/freenom_dns_updater
 
 COPY . .
