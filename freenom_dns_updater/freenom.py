@@ -20,6 +20,7 @@ PARSED_FREENOM_BASE_URL = urlparse(FREENOM_BASE_URL)
 LOGIN_URL = urljoin(FREENOM_BASE_URL, 'dologin.php')
 CLIENT_AREA_URL = urljoin(FREENOM_BASE_URL, 'clientarea.php')
 LIST_DOMAIN_URL = f'{CLIENT_AREA_URL}?action=domains'
+DOMAIN_DETAILS = f'{CLIENT_AREA_URL}?action=domaindetails'
 
 HttpParamDict = Dict[str, Union[None, str, int, float]]
 
@@ -52,6 +53,26 @@ class Freenom(object):
         r = self.session.post(url, payload)
         r.raise_for_status()
         return DomainParser.parse(r.text)
+
+    def check_before_update_nameservers(self, id_, nameservers : List):
+        url = DOMAIN_DETAILS + "&id="+str(id_)
+        r = self.session.get(url).text.lower()
+        return all(nameserver.lower() in r for nameserver in nameservers)
+
+    def update_nameservers(self, id_, nameservers : List,  url: str = DOMAIN_DETAILS):
+        token = self._get_token(url)
+        payload: HttpParamDict = {'token': token}
+        payload["id"] = str(id_)
+        payload["sub"] = "savens"
+        payload["nschoice"] = "custom"
+        for i in range(5):
+            if i <= len(nameservers) - 1:
+                payload[f"ns{i+1}"] = nameservers[i]
+            else:
+                payload[f"ns{i+1}"] = ""
+
+        r = self.session.post(url, payload).text.lower()
+        return all(nameserver.lower() in r for nameserver in nameservers)
 
     def list_records(self, domain: Domain):
         url = self.manage_domain_url(domain)

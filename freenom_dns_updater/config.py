@@ -81,6 +81,7 @@ class Config(dict):
         if self._records is not None:
             return self._records
 
+        if 'record' not in self: return []
         records = self['record']
         if isinstance(records, dict):
             records = [records]

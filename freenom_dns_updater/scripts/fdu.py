@@ -10,7 +10,7 @@ import time
 import traceback
 import warnings
 from multiprocessing import Process
-from typing import Callable, Optional
+from typing import Callable, Optional, List
 from urllib.parse import urlparse
 
 import click
@@ -73,6 +73,10 @@ def record():
 def domain():
     pass
 
+@cli.group(help='''Manage nameservers''')
+@click.help_option('--help', '-h')
+def nameserver():
+    pass
 
 @record.command('ls', help='List records of a specified domain')
 @click.argument('user')
@@ -220,6 +224,12 @@ def _update(config, ignore_errors):
     if not ok_count:
         click.secho('No record updated', fg='yellow', bold=True)
 
+def _update2(config, ignore_errors):
+    config = freenom_dns_updater.Config(config_src(config))
+    if "nameservers" in config and 'domain' in config:
+        nameservers = [nameserver.upper() for nameserver in config['nameservers']]
+        _update_nameservers(config.login, config.password, config['domain'], nameservers)
+
 
 def _renew(config, ignore_errors):
     config = freenom_dns_updater.Config(config_src(config))
@@ -265,6 +275,7 @@ def config_src(config):
 @click.option('-i', '--ignore-errors', default=False, help='ignore errors when updating', is_flag=True)
 @click.help_option('--help', '-h')
 def update(config, ignore_errors):
+    _update2(config, ignore_errors)
     return _update(config, ignore_errors)
 
 
@@ -380,6 +391,37 @@ def domain_renew(user, password, domain, period):
         click.secho(f'Unable to renew domain "{domain_obj.name}"', fg='red', bold=True)
         sys.exit(6)
 
+@nameserver.command('update', help='Update namesevers or print all nameservers.')
+@click.argument('user')
+@click.argument('password')
+@click.argument('domain')
+@click.option('--nameservers', default='', help='list nameservers separate by comma')
+@click.help_option('--help', '-h')
+def update_nameservers(user, password, domain, nameservers: str):
+    nameservers = nameservers.upper().split(',')
+    _update_nameservers(user, password, domain, nameservers)
+    
+
+def _update_nameservers(user, password, domain, nameservers: List):
+    freenom = freenom_dns_updater.Freenom()
+    if not freenom.login(user, password):
+        click.secho('Unable to login with the given credential', fg='red', bold=True)
+        sys.exit(6)
+    # search the domain
+    for d in freenom.list_domains():
+        if d.name == domain:
+            domain = d
+            break
+    if not isinstance(domain, freenom_dns_updater.Domain):
+        click.secho(f"You don't own the domain \"{domain}\"", fg='yellow', bold=True)
+        sys.exit(7)
+    if not freenom.check_before_update_nameservers(domain.id, nameservers):
+        if freenom.update_nameservers(domain.id, nameservers):
+            click.echo("List namesevers were updated")
+        else:
+            click.echo("Something went wrong!")
+    else:
+        click.echo("List namesevers were already updated")
 
 @cli.command(help='''Regularly update records according to a configuration file''')
 @click.argument('config', default='freenom.yml' if is_windows else '/etc/freenom.yml')
@@ -395,45 +437,50 @@ def process(config, period, ignore_errors, cache, renew):
     last_renew_date: Optional[datetime.date] = None
     while 1:
         try:
-            new_ipv4 = ''
-            new_ipv6 = ''
-            update_needed = True
-            if cache:
-                try:
-                    new_ipv4 = str(get_my_ipv4())
-                except Exception:
-                    warnings.warn(traceback.format_exc())
-                try:
-                    new_ipv6 = str(get_my_ipv6())
-                except OSError:
-                    pass
-                except Exception:
-                    warnings.warn(traceback.format_exc())
-                update_needed = ipv4 != new_ipv4 or ipv6 != new_ipv6
-
-            def start_and_wait_sub_process(target) -> Optional[int]:
-                p = Process(target=target, args=(config, ignore_errors))
-                p.start()
-                exit_code = None
-                try:
-                    p.join(500)
-                    exit_code = p.exitcode
-                except subprocess.TimeoutExpired:
-                    p.kill()
-                    raise
-                finally:
-                    p.close()
-                return exit_code
-
-            if update_needed:
-                start_and_wait_sub_process(_update)
+            config_ = freenom_dns_updater.Config(config_src(config))
+            if len(config_.records) > 0:
+                new_ipv4 = ''
+                new_ipv6 = ''
+                update_needed = True
                 if cache:
-                    ipv4 = new_ipv4
-                    ipv6 = new_ipv6
+                    try:
+                        new_ipv4 = str(get_my_ipv4())
+                    except Exception:
+                        warnings.warn(traceback.format_exc())
+                    try:
+                        new_ipv6 = str(get_my_ipv6())
+                    except OSError:
+                        pass
+                    except Exception:
+                        warnings.warn(traceback.format_exc())
+                    update_needed = ipv4 != new_ipv4 or ipv6 != new_ipv6
 
-            if renew and last_renew_date != datetime.date.today():
-                if start_and_wait_sub_process(_renew) == 0:
-                    last_renew_date = datetime.date.today()
+                def start_and_wait_sub_process(target) -> Optional[int]:
+                    p = Process(target=target, args=(config, ignore_errors))
+                    p.start()
+                    exit_code = None
+                    try:
+                        p.join(500)
+                        exit_code = p.exitcode
+                    except subprocess.TimeoutExpired:
+                        p.kill()
+                        raise
+                    finally:
+                        p.close()
+                    return exit_code
+
+                if update_needed:
+                    start_and_wait_sub_process(_update)
+                    if cache:
+                        ipv4 = new_ipv4
+                        ipv6 = new_ipv6
+
+                if renew and last_renew_date != datetime.date.today():
+                    if start_and_wait_sub_process(_renew) == 0:
+                        last_renew_date = datetime.date.today()
+            if "nameservers" in config_ and 'domain' in config_:
+                nameservers = [nameserver.upper() for nameserver in config_['nameservers']]
+                _update_nameservers(config_.login, config_.password, config_['domain'], nameservers)
         except Exception:
             traceback.print_exc(file=sys.stderr)
         finally:
