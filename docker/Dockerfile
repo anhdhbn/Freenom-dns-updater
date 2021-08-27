@@ -8,4 +8,4 @@ RUN python3 -m pip install --no-cache-dir . && rm -rf /opt/freenom_dns_updater
 
 ENTRYPOINT [ "fdu" ]
 
-CMD [ "process", "-i", "-c", "-r", "-t", "3600", "/etc/freenom.yml" ]
+CMD [ "process", "-i", "-c", "-t", "60", "/etc/freenom.yml" ]
