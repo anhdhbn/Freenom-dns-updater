@@ -4,7 +4,7 @@ WORKDIR /opt/freenom_dns_updater
 
 COPY . .
 
-RUN python3 -m pip install --no-cache-dir . && /opt/freenom_dns_updater
+RUN python3 -m pip install --no-cache-dir . && rm -rf /opt/freenom_dns_updater
 
 ENTRYPOINT [ "fdu" ]
 
