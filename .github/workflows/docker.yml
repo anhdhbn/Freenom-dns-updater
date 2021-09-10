@@ -8,9 +8,27 @@ on:
     branches: [ dev ]
 
 jobs:
-  backend:
+  fdu:
     runs-on: ubuntu-latest
-    steps:  
+
+    steps:
+    - name: Cache Docker layers
+      uses: actions/cache@v2
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: ${{ runner.os }}-buildx-
+
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+
+    - name: Set up Docker Buildx
+      id: buildx
+      uses: docker/setup-buildx-action@v1
+
     - name: Checkout repository
       uses: actions/checkout@v2
 
@@ -32,4 +50,6 @@ jobs:
         file: docker/Dockerfile
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ secrets.REPO }}:latest
-        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64,linux/arm64,linux/arm
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache
